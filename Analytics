@@ -1,0 +1,125 @@
+import React, { useState, useEffect } from 'react';
+import { Machine, SensorReading } from '@/entities/all';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { BarChart3, Calendar, SlidersHorizontal } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { format } from 'date-fns';
+
+const generateHistoricalData = (days, baseValue, unit) => {
+  const data = [];
+  const now = new Date();
+  const variation = baseValue * 0.2;
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+    const value = baseValue + (Math.random() - 0.5) * variation;
+    data.push({ date: format(date, 'MMM d'), value: parseFloat(value.toFixed(2)) });
+  }
+  return data;
+};
+
+export default function AnalyticsPage() {
+  const [machines, setMachines] = useState([]);
+  const [selectedMachines, setSelectedMachines] = useState([]);
+  const [selectedSensor, setSelectedSensor] = useState('vibration');
+  const [timeRange, setTimeRange] = useState(7);
+  const [chartData, setChartData] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      const machineData = await Machine.list();
+      setMachines(machineData);
+      if (machineData.length > 0) {
+        setSelectedMachines([machineData[0].id]);
+      }
+      setIsLoading(false);
+    };
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    if (selectedMachines.length > 0) {
+      const newChartData = [];
+      const baseDate = new Date();
+      
+      const machineObjects = selectedMachines.map(id => machines.find(m => m.id === id)).filter(Boolean);
+
+      for (let i = timeRange - 1; i >= 0; i--) {
+          const date = new Date(baseDate.getTime() - i * 24 * 60 * 60 * 1000);
+          const dataPoint = { date: format(date, 'MMM d') };
+
+          machineObjects.forEach(machine => {
+              const sensor = machine.sensors.find(s => s.type === selectedSensor);
+              if (sensor) {
+                  const baseValue = (sensor.threshold_warning - 2) || 50;
+                  const variation = baseValue * 0.2;
+                  dataPoint[machine.name] = parseFloat((baseValue + (Math.random() - 0.5) * variation).toFixed(2));
+              }
+          });
+          newChartData.push(dataPoint);
+      }
+      setChartData(newChartData);
+    }
+  }, [selectedMachines, selectedSensor, timeRange, machines]);
+
+  const handleMachineSelection = (id) => {
+    setSelectedMachines(prev => 
+      prev.includes(id) ? prev.filter(mId => mId !== id) : [...prev, id]
+    );
+  };
+  
+  const sensorTypes = ['vibration', 'temperature', 'current', 'acoustic'];
+  const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold text-white">Historical Analytics</h1>
+      <Card className="bg-slate-900 border-slate-800">
+        <CardHeader className="flex flex-col md:flex-row gap-4 justify-between">
+          <CardTitle className="text-white flex items-center gap-2"><BarChart3 /> Trend Analysis</CardTitle>
+          <div className="flex flex-wrap gap-2">
+             <Select value={selectedSensor} onValueChange={setSelectedSensor}>
+              <SelectTrigger className="w-40 bg-slate-800 border-slate-700 text-white"><SelectValue/></SelectTrigger>
+              <SelectContent>{sensorTypes.map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
+            </Select>
+            <div className="flex items-center gap-1 bg-slate-800 border border-slate-700 rounded-md p-1">
+              <Button onClick={() => setTimeRange(7)} variant={timeRange === 7 ? 'secondary' : 'ghost'} size="sm">7D</Button>
+              <Button onClick={() => setTimeRange(30)} variant={timeRange === 30 ? 'secondary' : 'ghost'} size="sm">30D</Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4">
+            <h3 className="text-slate-400 mb-2 text-sm font-semibold">Select machines to compare:</h3>
+            <div className="flex flex-wrap gap-2">
+              {machines.map(m => (
+                <Button key={m.id} onClick={() => handleMachineSelection(m.id)} variant={selectedMachines.includes(m.id) ? 'default' : 'outline'}>
+                  {m.name}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="h-96">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                <XAxis dataKey="date" stroke="#94a3b8" fontSize={12} />
+                <YAxis stroke="#94a3b8" fontSize={12} />
+                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }} />
+                <Legend />
+                {selectedMachines.map((id, index) => {
+                  const machine = machines.find(m => m.id === id);
+                  if (!machine) return null;
+                  return <Line key={id} type="monotone" dataKey={machine.name} stroke={colors[index % colors.length]} strokeWidth={2} dot={false} />;
+                })}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
